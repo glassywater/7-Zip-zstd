@@ -14,6 +14,7 @@ HRESULT CompressFiles(
     bool email, bool showDialog, bool waitFinish);
 
 void ExtractArchives(const UStringVector &arcPaths, const UString &outFolder, bool showDialog, bool elimDup, UInt32 writeZone);
+void SmartExtractArchives(const UStringVector &arcPaths, const UString &baseFolder, UInt32 writeZone);
 void TestArchives(const UStringVector &arcPaths, bool hashMode = false);
 
 void CalcChecksum(const UStringVector &paths,

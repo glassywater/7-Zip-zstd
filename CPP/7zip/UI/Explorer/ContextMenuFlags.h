@@ -9,6 +9,7 @@ namespace NContextMenuFlags
   const UInt32 kExtractHere = 1 << 1;
   const UInt32 kExtractTo = 1 << 2;
 
+  const UInt32 kSmartExtract = 1 << 3;
   const UInt32 kTest = 1 << 4;
   const UInt32 kOpen = 1 << 5;
   const UInt32 kOpenAs = 1 << 6;
@@ -23,5 +24,6 @@ namespace NContextMenuFlags
   const UInt32 kCRC_Cascaded = (UInt32)1 << 30;
   const UInt32 kCRC = (UInt32)1 << 31;
 }
+// namespace NContextMenuFlags
 
 #endif

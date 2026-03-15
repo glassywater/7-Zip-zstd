@@ -13,6 +13,7 @@
 #include "../../../Windows/ErrorMsg.h"
 #include "../../../Windows/FileDir.h"
 #include "../../../Windows/FileMapping.h"
+#include "../../../Windows/FileName.h"
 #include "../../../Windows/MemoryLock.h"
 #include "../../../Windows/ProcessUtils.h"
 #include "../../../Windows/Synchronization.h"
@@ -348,6 +349,223 @@ void ExtractArchives(const UStringVector &arcPaths, const UString &outFolder, bo
   MY_TRY_FINISH_VOID
 }
 
+
+void SmartExtractArchives(const UStringVector &arcPaths, const UString &baseFolder, UInt32 writeZone) {
+  MY_TRY_BEGIN
+
+      // For each archive, determine smart extraction path
+      for (unsigned i = 0; i < arcPaths.Size(); i++) {
+    const UString &arcPath = arcPaths[i];
+
+    // Get archive file name without path
+    UString arcName;
+    int slashPos = arcPath.ReverseFind_PathSepar();
+    if (slashPos >= 0)
+      arcName = arcPath.Ptr(slashPos + 1);
+    else
+      arcName = arcPath;
+
+    // Get folder name by removing extension
+    UString folderName;
+    int dotPos = arcName.ReverseFind_Dot();
+    if (dotPos > 0)
+      folderName = arcName.Left(dotPos);
+    else
+      folderName = arcName;
+
+    // Check for multi-part archives (.001, .part01, etc.)
+    folderName.TrimRight();
+    dotPos = folderName.ReverseFind_Dot();
+    if (dotPos > 0) {
+      const UString ext2 = folderName.Ptr(dotPos + 1);
+      if (ext2.IsEqualTo_Ascii_NoCase("001") ||
+          ext2.IsEqualTo_Ascii_NoCase("part001") ||
+          ext2.IsEqualTo_Ascii_NoCase("part01") ||
+          ext2.IsEqualTo_Ascii_NoCase("part1")) {
+        folderName.DeleteFrom(dotPos);
+        folderName.TrimRight();
+      }
+    }
+
+    // Use 7z.exe to list archive contents
+    UString imageName = fs2us(NWindows::NDLL::GetModuleDirPrefix());
+    imageName += L"7z.exe";
+
+    UString cmdLine = GetQuotedString(imageName);
+    cmdLine += L" l -slt ";
+    cmdLine += GetQuotedString(arcPath);
+
+    // Create pipe for capturing output
+    HANDLE hReadPipe, hWritePipe;
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+
+    AString content;
+    bool captureSuccess = false;
+
+    if (::CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+      ::SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+
+      STARTUPINFOW si;
+      memset(&si, 0, sizeof(si));
+      si.cb = sizeof(si);
+      si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
+      si.wShowWindow = SW_HIDE;
+      si.hStdOutput = hWritePipe;
+      si.hStdError = hWritePipe;
+
+      PROCESS_INFORMATION pi;
+      memset(&pi, 0, sizeof(pi));
+
+      if (::CreateProcessW(NULL, (LPWSTR)(LPCWSTR)cmdLine, NULL, NULL, TRUE,
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        ::CloseHandle(hWritePipe);
+
+        // Read output from pipe
+        char buffer[4096];
+        DWORD bytesRead;
+        while (
+            ::ReadFile(hReadPipe, buffer, sizeof(buffer), &bytesRead, NULL) &&
+            bytesRead > 0) {
+          content.AddFrom(buffer, bytesRead);
+        }
+
+        ::WaitForSingleObject(pi.hProcess, INFINITE);
+        ::CloseHandle(pi.hThread);
+        ::CloseHandle(pi.hProcess);
+        ::CloseHandle(hReadPipe);
+        captureSuccess = true;
+      } else {
+        ::CloseHandle(hReadPipe);
+        ::CloseHandle(hWritePipe);
+      }
+    }
+
+    // If failed to capture output, fallback to default extraction
+    if (!captureSuccess) {
+      UString outFolder = baseFolder;
+      NFile::NName::NormalizeDirPathPrefix(outFolder);
+      outFolder += folderName;
+      UStringVector singleArc;
+      singleArc.Add(arcPath);
+      ExtractArchives(singleArc, outFolder, false, false, writeZone);
+      continue;
+    }
+
+    // Parse the output to count top-level items
+    int topLevelCount = 0;
+    UString singleTopLevelName;
+    bool hasSingleTopLevelFolder = false;
+    UStringVector topLevelNames;
+
+    {
+      // Parse content line by line to find all paths
+      int lineStart = 0;
+
+      // Helper lambda to extract and clean path from "Path = " line
+      auto extractPath = [](const AString &line) -> UString {
+        AString pathStr = line.Mid(7, line.Len() - 7);
+        UString path = GetUnicodeString(pathStr);
+        // Remove trailing whitespace
+        while (path.Len() > 0) {
+          wchar_t c = path.Back();
+          if (c == L'\r' || c == L'\n' || c == L' ' || c == L'\t') {
+            path.DeleteBack();
+          } else {
+            break;
+          }
+        }
+        return path;
+      };
+
+      for (int pos = 0; pos <= (int)content.Len(); pos++) {
+        if (pos == (int)content.Len() || content[pos] == '\n') {
+          AString line = content.Mid(lineStart, pos - lineStart);
+          line.Trim();
+          lineStart = pos + 1;
+
+          if (line.IsPrefixedBy("Path = ")) {
+            UString currentPath = extractPath(line);
+
+            // Skip paths with colon (archive paths, not contents)
+            if (currentPath.IsEmpty() || currentPath.Find(L':') >= 0) {
+              continue;
+            }
+
+            // Extract top-level name
+            int sepPos = currentPath.Find(WCHAR_PATH_SEPARATOR);
+            UString topName =
+                (sepPos >= 0) ? currentPath.Left(sepPos) : currentPath;
+
+            // Add to list if not already present
+            bool found = false;
+            for (unsigned j = 0; j < topLevelNames.Size(); j++) {
+              if (topLevelNames[j] == topName) {
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              topLevelNames.Add(topName);
+            }
+          }
+        }
+      }
+
+      topLevelCount = topLevelNames.Size();
+
+      // Check if single top-level item is a folder
+      if (topLevelCount == 1) {
+        singleTopLevelName = topLevelNames[0];
+        hasSingleTopLevelFolder = false;
+        lineStart = 0;
+
+        for (int pos = 0; pos <= (int)content.Len(); pos++) {
+          if (pos == (int)content.Len() || content[pos] == '\n') {
+            AString line = content.Mid(lineStart, pos - lineStart);
+            line.Trim();
+            lineStart = pos + 1;
+
+            if (line.IsPrefixedBy("Path = ")) {
+              UString path = extractPath(line);
+              if (!path.IsEmpty() && path.Find(L':') < 0 &&
+                  path.Find(WCHAR_PATH_SEPARATOR) >= 0) {
+                hasSingleTopLevelFolder = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Decide extraction path based on top-level item count
+    UString outFolder = baseFolder;
+    NFile::NName::NormalizeDirPathPrefix(outFolder);
+
+    if (topLevelCount == 0) {
+      // Failed to analyze archive, fallback to creating subfolder
+      outFolder += folderName;
+    } else if (topLevelCount == 1 && hasSingleTopLevelFolder) {
+      // Single top-level folder: extract directly to base folder
+      // The folder inside archive will be extracted as-is
+    } else if (topLevelCount == 1) {
+      // Single top-level file: extract directly to base folder
+    } else {
+      // Multiple top-level items: extract to subfolder with archive name
+      outFolder += folderName;
+    }
+
+    // Extract the archive
+    UStringVector singleArc;
+    singleArc.Add(arcPath);
+    ExtractArchives(singleArc, outFolder, false, false, writeZone);
+  }
+
+  MY_TRY_FINISH_VOID
+}
 
 void TestArchives(const UStringVector &arcPaths, bool hashMode)
 {
