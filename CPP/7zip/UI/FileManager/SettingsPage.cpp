@@ -49,6 +49,11 @@ static const UInt32 kLangIDs[] =
   IDT_MEM_USAGE_EXTRACT
   // , IDT_COMPRESS_MEMORY
 };
+
+static const UInt32 kLangIDs_Colon[] =
+{
+  IDT_DROPPABLE_EXTENSIONS
+};
 #endif
 
 #define kSettingsTopic "FM/options.htm#settings"
@@ -139,6 +144,7 @@ bool CSettingsPage::OnInit()
 
 #ifdef Z7_LANG
   LangSetDlgItems(*this, kLangIDs, Z7_ARRAY_SIZE(kLangIDs));
+  LangSetDlgItems_Colon(*this, kLangIDs_Colon, Z7_ARRAY_SIZE(kLangIDs_Colon));
 #endif
 
   CFmSettings st;
@@ -215,6 +221,11 @@ bool CSettingsPage::OnInit()
   CheckButton(IDX_SETTINGS_LOWERCASE_HASHES, st.LowercaseHashes);
   // EnableSubItems();
 
+  // Load droppable extensions
+  {
+    UString extensions = ReadDroppableExtensions();
+    SetItemText(IDE_DROPPABLE_EXTENSIONS, extensions);
+  }
 
   {
     size_t ramSize = (size_t)sizeof(size_t) << 29;
@@ -336,6 +347,16 @@ LONG CSettingsPage::OnApply()
 
     st.Save();
     _wasChanged = false;
+  }
+
+  // Save droppable extensions
+  {
+    UString extensions;
+    GetItemText(IDE_DROPPABLE_EXTENSIONS, extensions);
+    extensions.Trim();
+    if (extensions.IsEmpty())
+      extensions = kDefaultDroppableExtensions;
+    SaveDroppableExtensions(extensions);
   }
 
   #ifndef UNDER_CE
@@ -490,6 +511,9 @@ bool CSettingsPage::OnCommand(unsigned code, unsigned itemID, LPARAM param)
       _memx_wasChanged = true;
       Changed();
     }
+
+    if (code == EN_CHANGE && itemID == IDE_DROPPABLE_EXTENSIONS)
+      Changed();
 
 #ifdef ZIP7_DARKMODE
     if (code == CBN_SELCHANGE && itemID == IDC_COLOR_MODE)
