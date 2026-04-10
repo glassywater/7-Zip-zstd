@@ -30,6 +30,8 @@
 #include "FormatUtils.h"
 #include "LangUtils.h"
 
+#include "RegistryUtils.h"
+
 #include "resource.h"
 #include "../Explorer/resource.h"
 
@@ -409,6 +411,9 @@ class CDropTarget Z7_final:
 
   CPanel *m_Panel;
   bool m_IsAppTarget;        // true, if we want to drop to app window (not to panel)
+  bool m_IsDropToExe;        // true, if drop target is an exe file
+
+  UString m_DroppableExtensions; // cached from registry in DragEnter
 
   bool m_TargetPath_WasSent_ToDataObject;           // true, if TargetPath was sent
   bool m_TargetPath_NonEmpty_WasSent_ToDataObject;  // true, if non-empty TargetPath was sent
@@ -1814,6 +1819,7 @@ CDropTarget::CDropTarget():
       // m_SubFolderIndex(-1),
       m_Panel(NULL),
       m_IsAppTarget(false),
+      m_IsDropToExe(false),
       m_TargetPath_WasSent_ToDataObject(false),
       m_TargetPath_NonEmpty_WasSent_ToDataObject(false),
       m_Transfer_WasSent_ToDataObject(false),
@@ -1846,6 +1852,7 @@ void CDropTarget::ClearState()
   // m_DropHighlighted_SubFolderName.Empty();
   m_Panel = NULL;
   m_IsAppTarget = false;
+  m_IsDropToExe = false;
   m_TargetPath_WasSent_ToDataObject = false;
   m_TargetPath_NonEmpty_WasSent_ToDataObject = false;
   m_Transfer_WasSent_ToDataObject = false;
@@ -1901,11 +1908,53 @@ void CDropTarget::RemoveSelection()
       m_Panel->m_DropHighlighted_SelectionIndex = -1;
     }
   }
+  m_IsDropToExe = false;
 }
 
 #ifdef UNDER_CE
 #define ChildWindowFromPointEx(hwndParent, pt, uFlags) ChildWindowFromPoint(hwndParent, pt)
 #endif
+
+
+// Helper function to check if a file extension is droppable
+static bool IsDroppableExtension(const UString &fileName, const UString &extensions)
+{
+  if (extensions.IsEmpty())
+    return false;
+
+  // Find the file extension
+  const int dotPos = fileName.ReverseFind_Dot();
+  if (dotPos < 0)
+    return false;
+
+  const UString fileExt = fileName.Ptr(dotPos);
+  
+  // Parse and check extensions (comma or semicolon separated)
+  UString ext;
+  for (unsigned i = 0; i <= extensions.Len(); i++)
+  {
+    const wchar_t c = (i < extensions.Len()) ? extensions[i] : L'\0';
+    if (c == L',' || c == L';' || c == L'\0')
+    {
+      ext.Trim();
+      if (!ext.IsEmpty())
+      {
+        // Add dot if missing
+        if (ext[0] != L'.')
+          ext.InsertAtFront(L'.');
+        
+        // Case-insensitive comparison
+        if (fileExt.IsEqualTo_NoCase(ext))
+          return true;
+      }
+      ext.Empty();
+    }
+    else
+      ext += c;
+  }
+  
+  return false;
+}
 
 
 /*
@@ -1953,8 +2002,30 @@ void CDropTarget::PositionCursor(const POINTL &ptl)
           {
             m_Panel = panel;
             m_IsAppTarget = false;
+            // Allow drop to same panel only if target is a folder (not being dragged) or a droppable file
             if ((int)i == SrcPanelIndex)
-              return; // we don't allow to drop to source panel
+            {
+              if (::WindowFromPoint(pt) != (HWND)m_Panel->_listView)
+                return;
+              LVHITTESTINFO info;
+              POINT ptClient = pt;
+              m_Panel->_listView.ScreenToClient(&ptClient);
+              info.pt = ptClient;
+              const int index = ListView_HitTest(m_Panel->_listView, &info);
+              if (index < 0)
+                return;
+              const unsigned realIndex = m_Panel->GetRealItemIndex(index);
+              if (realIndex == kParentIndex)
+                return;
+              if (m_Panel->IsItem_Folder(realIndex))
+              {
+                // Don't allow drop onto a folder that is being dragged
+                if (ListView_GetItemState(m_Panel->_listView, index, LVIS_SELECTED) & LVIS_SELECTED)
+                  return;
+              }
+              else if (!IsDroppableExtension(m_Panel->GetItemName(realIndex), m_DroppableExtensions))
+                return;
+            }
             break;
           }
         }
@@ -1993,12 +2064,21 @@ void CDropTarget::PositionCursor(const POINTL &ptl)
   const unsigned realIndex = m_Panel->GetRealItemIndex(index);
   if (realIndex == kParentIndex)
     return;
-  if (!m_Panel->IsItem_Folder(realIndex))
-    return;
-  // m_SubFolderIndex = (int)realIndex;
-  m_Panel->m_DropHighlighted_SubFolderName = m_Panel->GetItemName(realIndex);
-  ListView_SetItemState_DropHighlighted(m_Panel->_listView, index, true);
-  m_Panel->m_DropHighlighted_SelectionIndex = index;
+  
+  const bool isFolder = m_Panel->IsItem_Folder(realIndex);
+  const UString itemName = m_Panel->GetItemName(realIndex);
+  
+  // Check if target is a folder or a droppable file
+  const bool isDroppableFile = !isFolder && IsDroppableExtension(itemName, m_DroppableExtensions);
+  
+  if (isFolder || isDroppableFile)
+  {
+    // m_SubFolderIndex = (int)realIndex;
+    m_Panel->m_DropHighlighted_SubFolderName = itemName;
+    ListView_SetItemState_DropHighlighted(m_Panel->_listView, index, true);
+    m_Panel->m_DropHighlighted_SelectionIndex = index;
+    m_IsDropToExe = isDroppableFile;
+  }
 }
 
 
@@ -2143,13 +2223,18 @@ static DWORD GetEffect_ForKeys(DWORD keyState)
 
 
 /* GetEffect() uses m_TargetPath_WasSentToDataObject
-   to disale MOVE operation, if Source is not 7-Zip
+   to disable MOVE operation, if Source is not 7-Zip
 */
 DWORD CDropTarget::GetEffect(DWORD keyState, POINTL /* pt */, DWORD allowedEffect) const
 {
   // (DROPEFFECT_NONE == 0)
   if (!m_DropIsAllowed || !m_PanelDropIsAllowed)
     return 0;
+  
+  // When dropping to exe file, return COPY to prevent file operations
+  if (m_IsDropToExe)
+    return DROPEFFECT_COPY;
+  
   if (!IsFsFolderPath() || !m_TargetPath_WasSent_ToDataObject)
   {
     // we don't allow MOVE, if Target is archive or Source is not 7-Zip
@@ -2181,11 +2266,14 @@ DWORD CDropTarget::GetEffect(DWORD keyState, POINTL /* pt */, DWORD allowedEffec
 
 /* returns:
     - target folder path prefix, if target is FS folder
-    - empty string, if target is not FS folder
+    - empty string, if target is not FS folder or is exe file
 */
 UString CDropTarget::GetTargetPath() const
 {
   if (!IsFsFolderPath())
+    return UString();
+  // Return empty path when dropping to exe (no file operation needed)
+  if (m_IsDropToExe)
     return UString();
   UString path = m_Panel->GetFsPath();
   if (/* m_SubFolderIndex >= 0 && */
@@ -2406,6 +2494,7 @@ Z7_COMWF_B CDropTarget::DragEnter(IDataObject *dataObject, DWORD keyState, POINT
   // we will use (m_DataObject) later in DragOver() and DragLeave().
   m_DataObject = dataObject;
   // return DragOver(keyState, pt, effect);
+  m_DroppableExtensions = ReadDroppableExtensions();
   PositionCursor(pt);
   CTargetTransferInfo target;
   target.FuncType = k_DragTargetMode_Enter;
@@ -2661,7 +2750,43 @@ Z7_COMWF_B CDropTarget::Drop(IDataObject *dataObject, DWORD keyState,
   {
     if (m_GetTransfer_WasSuccess)
       needDrop_by_Source = ((transfer.Flags & k_SourceFlags_DoNotProcessInTarget) != 0);
-    if (!needDrop_by_Source)
+    
+    // Handle drop to exe file: pass file paths as command line arguments
+    if (m_IsDropToExe && m_Panel && !m_Panel->m_DropHighlighted_SubFolderName.IsEmpty())
+    {
+      UString exePath = m_Panel->GetFsPath();
+      exePath += m_Panel->m_DropHighlighted_SubFolderName;
+
+      // Build command line parameters with quoting
+      UString params;
+      FOR_VECTOR (i, m_SourcePaths)
+      {
+        if (i > 0)
+          params += L' ';
+        params += L'\"';
+        params += m_SourcePaths[i];
+        params += L'\"';
+      }
+
+      const UString workDir = m_Panel->GetFsPath();
+
+      SHELLEXECUTEINFOW execInfo;
+      memset(&execInfo, 0, sizeof(execInfo));
+      execInfo.cbSize = sizeof(execInfo);
+      execInfo.lpFile = exePath;
+      execInfo.lpParameters = params;
+      execInfo.lpDirectory = workDir;
+      execInfo.nShow = SW_SHOWNORMAL;
+
+      ::ShellExecuteExW(&execInfo);
+      
+      RemoveSelection();
+      // Prevent any file move/copy operations
+      opEffect = DROPEFFECT_NONE;
+      cmdEffect = DROPEFFECT_NONE;
+      needDrop_by_Source = true;
+    }
+    else if (!needDrop_by_Source)
     {
       bool moveMode = (cmdEffect == DROPEFFECT_MOVE);
       bool needDrop = false;
@@ -2726,9 +2851,15 @@ Z7_COMWF_B CDropTarget::Drop(IDataObject *dataObject, DWORD keyState,
     // bool res;
     // only CFSTR_PERFORMEDDROPEFFECT affects file removing in Win10-Explorer.
     // res = SendToSource_UInt32(dataObject, RegisterClipboardFormat(CFSTR_LOGICALPERFORMEDDROPEFFECT), DROPEFFECT_MOVE); // for debug
+    
+    // Determine the effect to send back to source
+    DWORD performedEffect = DROPEFFECT_NONE;
+    if (cmd != NDragMenu::k_Cancel && !m_IsDropToExe)
+      performedEffect = DROPEFFECT_COPY;
+    
     /* res = */ SendToSource_UInt32(dataObject,
         RegisterClipboardFormat(CFSTR_PERFORMEDDROPEFFECT),
-        cmd == NDragMenu::k_Cancel ? DROPEFFECT_NONE : DROPEFFECT_COPY);
+        performedEffect);
     // res = res;
   }
   RemoveSelection();

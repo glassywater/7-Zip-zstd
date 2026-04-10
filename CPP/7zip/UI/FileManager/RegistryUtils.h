@@ -50,6 +50,11 @@ bool WantCopyHistory();
 bool WantFolderHistory();
 bool WantLowercaseHashes();
 
+#define kDefaultDroppableExtensions L"exe,bat,cmd"
+
+void SaveDroppableExtensions(const UString &extensions);
+UString ReadDroppableExtensions();
+
 void SaveFlatView(UInt32 panelIndex, bool enable);
 bool ReadFlatView(UInt32 panelIndex);
 

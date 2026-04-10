@@ -44,6 +44,8 @@ static LPCTSTR const kCopyHistory = TEXT("WantCopyHistory");
 static LPCTSTR const kFolderHistory = TEXT("WantFolderHistory");
 static LPCTSTR const kLowercaseHashes = TEXT("LowercaseHashes");
 
+static LPCTSTR const kDroppableExtensions = TEXT("DroppableExtensions");
+
 static LPCTSTR const kFlatViewName = TEXT("FlatViewArc");
 // static LPCTSTR const kShowDeletedFiles = TEXT("ShowDeleted");
 
@@ -212,6 +214,24 @@ bool WantPathHistory() { return ReadFMOption(kPathHistory, true); }
 bool WantCopyHistory() { return ReadFMOption(kCopyHistory, true); }
 bool WantFolderHistory() { return ReadFMOption(kFolderHistory, true); }
 bool WantLowercaseHashes() { return ReadFMOption(kLowercaseHashes); }
+
+void SaveDroppableExtensions(const UString &extensions)
+{
+  CKey key;
+  key.Create(HKEY_CURRENT_USER, kCU_FMPath);
+  key.SetValue(kDroppableExtensions, extensions);
+}
+
+UString ReadDroppableExtensions()
+{
+  UString extensions;
+  CKey key;
+  if (key.Open(HKEY_CURRENT_USER, kCU_FMPath, KEY_READ) == ERROR_SUCCESS)
+    key.QueryValue(kDroppableExtensions, extensions);
+  if (extensions.IsEmpty())
+    extensions = kDefaultDroppableExtensions;
+  return extensions;
+}
 
 static CSysString GetFlatViewName(UInt32 panelIndex)
 {

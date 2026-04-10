@@ -40,7 +40,15 @@ BEGIN
 #ifdef ZIP7_DARKMODE
   LTEXT "Color Mode:", IDT_COLOR_MODE, m, save_y + 22 + 76, xc, 8
   COMBOBOX IDC_COLOR_MODE, m, spin_y + 22 + 76, spin_x_size, 60, MY_COMBO
+#define drop_ext_y (spin_y + 22 + 76 + 20)
+#else
+#define drop_ext_y 240
 #endif
+
+  LTEXT "Droppable file extensions:", IDT_DROPPABLE_EXTENSIONS, m, drop_ext_y, xc, 8
+  EDITTEXT IDE_DROPPABLE_EXTENSIONS, m, drop_ext_y + 12, xc - m, 14, ES_AUTOHSCROLL
+
+#undef drop_ext_y
 END
 
 #undef save_y
