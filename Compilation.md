@@ -13,8 +13,10 @@ git submodule update --init DarkMode/lib
 ## 2. 初始化 MSVC 开发环境
 
 ```cmd
-call "D:\Program Files (x86)\tmp\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 -vcvars_ver=14.43.34808
 ```
+
+> `-vcvars_ver=14.43.34808` 是必须的——新版工具集 `14.51` 目录为空，缺少 `nmake.exe` 和 `cl.exe`。
 
 验证工具链可用：
 
