@@ -66,6 +66,12 @@ jobs:
 
           copy %WDIR%\.github\workflows\do-release-gui.cmd %WDIR%\build\do-release-gui.cmd
 
+      - name: Test
+        shell: cmd
+        run: |
+          set Z7_PATH=build\bin-${{ matrix.arch }}\7z.exe
+          tclsh tests\7z-test.tcl -verbose tsem
+
       - uses: actions/upload-artifact@v6
         with:
           path: ${{ github.workspace }}\build\**\*
