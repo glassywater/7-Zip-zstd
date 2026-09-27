@@ -114,14 +114,15 @@ jobs:
         cd artifact
         do-release.cmd
 
-    - name: Create GitHub release
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ${{ github.repository }}
-      run: |
-        cd artifact
-        gh release create "$RELEASE_TAG" *.exe *.7z \
-          --target "${{ github.sha }}" \
-          --title "7-Zip ZS $RELEASE_TAG" \
-          --generate-notes
+    - name: Create Release and upload
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.RELEASE_TAG }}
+        name: 7-Zip ZS ${{ env.RELEASE_TAG }}
+        target_commitish: ${{ github.sha }}
+        generate_release_notes: true
+        overwrite_files: true
+        fail_on_unmatched_files: true
+        files: |
+          artifact/*.exe
+          artifact/*.7z
