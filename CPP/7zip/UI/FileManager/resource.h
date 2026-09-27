@@ -69,6 +69,7 @@
 // #define IDM_EXIT                 557
 #define IDM_LINK                 558
 #define IDM_ALT_STREAMS          559
+#define IDM_COPY_PATH            560
 
 #define IDM_VER_EDIT             580
 #define IDM_VER_COMMIT           581

@@ -41,6 +41,7 @@ BEGIN
     MENUITEM "Open O&utside\tShift+Enter",  IDM_OPEN_OUTSIDE
     MENUITEM "&View\tF3",                   IDM_FILE_VIEW
     MENUITEM "&Edit\tF4",                   IDM_FILE_EDIT
+    MENUITEM "Copy &Path",                  IDM_COPY_PATH
     MY_MENUITEM_SEPARATOR
     MENUITEM "Rena&me\tF2",                 IDM_RENAME
     MENUITEM "&Copy To...\tF5",             IDM_COPY_TO

@@ -452,6 +452,22 @@ void CPanel::EditCopy()
   ClipboardSetText(_mainWindow, s);
 }
 
+void CPanel::CopyFullPaths()
+{
+  CRecordVector<UInt32> indices;
+  Get_ItemIndices_Operated(indices);
+  if (indices.IsEmpty())
+    return;
+  UString s;
+  FOR_VECTOR (i, indices)
+  {
+    if (i != 0)
+      s += "\xD\n";
+    s += GetItemFullPath(indices[i]);
+  }
+  ClipboardSetText(_mainWindow, s);
+}
+
 void CPanel::EditPaste()
 {
   /*

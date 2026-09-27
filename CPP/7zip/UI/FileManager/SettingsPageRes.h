@@ -17,6 +17,7 @@
 
 #define IDT_DROPPABLE_EXTENSIONS            2514
 #define IDE_DROPPABLE_EXTENSIONS            2515
+#define IDX_SETTINGS_SHOW_COPY_PATH         2516
 
 #define IDT_MEM_USAGE_EXTRACT               7816
 

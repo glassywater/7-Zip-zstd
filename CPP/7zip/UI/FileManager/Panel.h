@@ -679,6 +679,7 @@ public:
   void EditCut();
   void EditCopy();
   void EditPaste();
+  void CopyFullPaths();
 
  
   // void SortItems(int index);

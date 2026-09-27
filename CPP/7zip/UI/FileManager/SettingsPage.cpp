@@ -159,6 +159,7 @@ bool CSettingsPage::OnInit()
   // CheckButton(IDX_SETTINGS_UNDERLINE, st.Underline);
 
   CheckButton(IDX_SETTINGS_SHOW_SYSTEM_MENU, st.ShowSystemMenu);
+  CheckButton(IDX_SETTINGS_SHOW_COPY_PATH, st.ShowCopyPath);
   
   if (IsLargePageSupported())
     CheckButton(IDX_SETTINGS_LARGE_PAGES, ReadLockMemoryEnable());
@@ -344,6 +345,7 @@ LONG CSettingsPage::OnApply()
     // st.Underline = IsButtonCheckedBool(IDX_SETTINGS_UNDERLINE);
     
     st.ShowSystemMenu = IsButtonCheckedBool(IDX_SETTINGS_SHOW_SYSTEM_MENU);
+    st.ShowCopyPath = IsButtonCheckedBool(IDX_SETTINGS_SHOW_COPY_PATH);
 
     st.Save();
     _wasChanged = false;
@@ -552,6 +554,7 @@ bool CSettingsPage::OnButtonClicked(unsigned buttonID, HWND buttonHWND)
     */
     case IDX_SETTINGS_SHOW_DOTS:
     case IDX_SETTINGS_SHOW_SYSTEM_MENU:
+    case IDX_SETTINGS_SHOW_COPY_PATH:
     case IDX_SETTINGS_SHOW_REAL_FILE_ICONS:
     case IDX_SETTINGS_FULL_ROW:
     case IDX_SETTINGS_SHOW_GRID:

@@ -15,6 +15,7 @@ BEGIN
   MY_CONTROL_CHECKBOX ( "&Alternative selection mode", IDX_SETTINGS_ALTERNATIVE_SELECTION, m, 80, xc)
 
   MY_CONTROL_CHECKBOX ( "Show system &menu",     IDX_SETTINGS_SHOW_SYSTEM_MENU,     m, 100, xc)
+  MY_CONTROL_CHECKBOX ( "Show ""Copy path"" in context menu", IDX_SETTINGS_SHOW_COPY_PATH, m, 111, xc)
 
   MY_CONTROL_CHECKBOX ( "Use &large memory pages", IDX_SETTINGS_LARGE_PAGES,        m, 122, xc)
 

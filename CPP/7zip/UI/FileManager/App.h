@@ -59,6 +59,7 @@ class CApp
 public:
   NWindows::CWindow _window;
   bool ShowSystemMenu;
+  bool ShowCopyPath;
   bool AutoRefresh_Mode;
   // bool ShowDeletedFiles;
   unsigned NumPanels;
@@ -123,6 +124,7 @@ public:
   void OpenItemOutside() { GetFocusedPanel().OpenSelectedItems(false); }
   void EditItem(bool useEditor) { GetFocusedPanel().EditItem(useEditor); }
   void Rename() { GetFocusedPanel().RenameFile(); }
+  void CopyPath() { GetFocusedPanel().CopyFullPaths(); }
   void CopyTo() { OnCopy(false, false, GetFocusedPanelIndex()); }
   void MoveTo() { OnCopy(true, false, GetFocusedPanelIndex()); }
   void Delete(bool toRecycleBin) { GetFocusedPanel().DeleteItems(toRecycleBin); }

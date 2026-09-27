@@ -80,6 +80,7 @@ void CApp::SetListSettings()
   st.Load();
 
   ShowSystemMenu = st.ShowSystemMenu;
+  ShowCopyPath = st.ShowCopyPath;
 
   DWORD extendedStyle = LVS_EX_HEADERDRAGDROP;
   if (st.FullRow)
