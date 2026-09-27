@@ -39,6 +39,15 @@ IF NOT "%ZIP32%" == "" (
 cd %WD%
 copy %BIN%\Install.exe + %ARCH%.7z 7z%VERSION%-zstd-%ARCH%.exe || EXIT 1
 del %ARCH%.7z
+
+REM Portable zip (same files as the installer, without Uninstall.exe)
+SET PDIR=%WD%\portable\7-Zip-zstd-%ARCH%
+xcopy %SKEL% %PDIR% /E /I /Q /Y || EXIT 1
+del %PDIR%\Uninstall.exe
+cd %WD%\portable
+%SZIP% a -tzip -mx9 ..\7z%VERSION%-zstd-%ARCH%-portable.zip 7-Zip-zstd-%ARCH% || EXIT 1
+cd %WD%
+rd /S /Q %WD%\portable
 goto :eof
 REM end of doit function.
 

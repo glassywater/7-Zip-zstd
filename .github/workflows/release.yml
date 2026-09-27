@@ -102,4 +102,6 @@ jobs:
         generate_release_notes: true
         overwrite_files: true
         fail_on_unmatched_files: true
-        files: artifact/*.exe
+        files: |
+          artifact/*.exe
+          artifact/*-portable.zip
