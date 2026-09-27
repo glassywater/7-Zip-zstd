@@ -39,7 +39,7 @@ test main--e-inv-arg {error, unknown switch} -body {
 foreach t {{-t7z -m0=zstd:x1} {-tzstd -mx1} {-tzip -mx1}} {
 test main--compress[lindex $t 0]-no-file {error, compress no such file} -constraints winOnly -body {
 	set tmpfn [file join [temporaryDirectory] 7z-test-no-such-file-xxx.txt]
-	7z a {*}$t -- NUL: $tmpfn
+	7z a {*}$t -sae -- {\\.\NUL} $tmpfn
 } -returnCodes error -match glob -result "*Scan WARNINGS for files and folders:*The system cannot find the file specified.*"
 }
 
@@ -50,16 +50,16 @@ testConstraint lckd_test_file [expr {
 	[info exists ::env(LOCALAPPDATA)] &&
 	[file exists [set lckd_test_file [file join $::env(LOCALAPPDATA) {Microsoft\Windows\Notifications\wpndatabase.db-wal}]]]
 }]
-foreach t {{-t7z -m0=zstd:x1} {-tzstd -mx1}} {
+foreach t {{-t7z -m0=zstd:x1} {-tzstd -mx1} {-tzip -mx1}} {
 test main--compress[lindex $t 0]-lckd-no-ssw {error, compress file open for writing without -ssw option} -constraints lckd_test_file -body {
 	variable lckd_test_file
 	# attempt to compress (without -ssw) file opened for write by other process shall generate an error:
-	7z a {*}$t -- NUL: $lckd_test_file
+	7z a {*}$t -sae -- {\\.\NUL} $lckd_test_file
 } -returnCodes error -match glob -result "*WARNING: The process cannot access the file because it is being used by another process.*"
 test main--compress[lindex $t 0]-lckd-w-ssw {no error, compress file open for writing with -ssw option} -constraints lckd_test_file -body {
 	variable lckd_test_file
 	# attempt to compress (without -ssw) file opened for write by other process shall generate an error:
-	7z a {*}$t -ssw -- NUL: $lckd_test_file
+	7z a {*}$t -ssw -sae -- {\\.\NUL} $lckd_test_file
 } -returnCodes ok -match glob -result "*Everything is Ok*"
 }
 
@@ -93,7 +93,6 @@ test main--compress-mx0 {7z simple compression / decompression, level 0} -setup 
 	set tmpdir [file join [temporaryDirectory] 7z-test-[format %x-%lx [pid] [clock microseconds]]]
 	file mkdir $tmpdir
 } -body {
-	variable Z7_PATH
 	foreach t {zstd brotli LZMA2 lz4 lz5 lizard} {
 		set arcpath [file join $tmpdir test.$t.7z]
 		set v "$t: This is a test string passed to stdin"
@@ -121,6 +120,35 @@ test main--compress-mx0 {7z simple compression / decompression, level 0} -setup 
 	file delete -force $tmpdir
 } -result OK
 
+set BASEPATH [file dirname [file dirname [info script]]]
+set res [lsort [glob -directory [file join $BASEPATH C] -tails *z*]]
+foreach {t m} {zip {zstd Deflate} 7z {zstd brotli lz4 lz5 lizard}} {
+	foreach m $m {
+		test main--compress-mult-$t-$m {7z/zip simple compression / decompression multiple files} -setup {
+			set tmpdir [file join [temporaryDirectory] 7z-test-[format %x-%lx [pid] [clock microseconds]]]
+			file mkdir $tmpdir
+		} -body {
+			set arcpath [file join $tmpdir test.$m.[expr {$t eq "zip" ? "zip" : "7z"}]]
+			# compress:
+			7z a -t$t -m0=$m:x0 -- $arcpath [file join $BASEPATH C *z*]
+			assertLogged {\nCreating archive} \
+				{\nAdd new data to archive: \d+ folders, \d{2,} files, \d{7,} bytes} \
+				{\nEverything is Ok}
+			# test:
+			7z t -- $arcpath
+			assertLogged {\nEverything is Ok}
+			# decompress:
+			7z x -o[file join $tmpdir extracted] -- $arcpath
+			assertLogged {\nEverything is Ok}
+			# compare content of extracted destination folder with original list (see glob above):
+			lsort [glob -directory [file join $tmpdir extracted] -tails *]
+		} -cleanup {
+			file delete -force $tmpdir
+		} -result $res
+	}
+}
+set res {}
+
 test main--mmt-option {7z force multi-threaded & single-threaded compression / decompression} {
 	variable Z7_PATH
 	foreach mt {=on =off =1 =2 d2 d-2 p25u1 p1+1} {
@@ -140,7 +168,6 @@ test main--encrypt-decrypt {7z encryption, decription} -setup {
 	set tmpdir [file join [temporaryDirectory] 7z-test-[format %x-%lx [pid] [clock microseconds]]]
 	file mkdir $tmpdir
 } -body {
-	variable Z7_PATH
   variable Z7_PWD
 	set v "test zstd & brotli 0123456789-ABCEFGHIJKLMNOPQRSTUVWXYZ?_*."
 	foreach {m l} {zstd 9 brotli 5 LZMA2 1} {
@@ -236,5 +263,59 @@ test main--content-hashes {7z hashes of archive content} {
 	XXH32 e2858574
 	XXH64 6ad2d3e5bcc63918
 }]
+
+test main--decompress-currupt-archive {7z simple compression / decompression, detection of currupt archive} -setup {
+	set tmpdir [file join [temporaryDirectory] 7z-test-[format %x-%lx [pid] [clock microseconds]]]
+	file mkdir $tmpdir
+} -body {
+	foreach t {zstd brotli LZMA2 lz4 lz5 lizard} {
+		set v "$t: This is a test string passed to stdin [string repeat "test " 50]"
+		foreach m [list [list -t7z -m0=$t] -t$t] {
+			if {$t eq "LZMA2" && $m eq "-t$t"} continue
+			set arcpath [file join $tmpdir test.$t]
+			if {$m ne "-t$t"} {append arcpath .7z}
+			if {[catch {
+				# compress:
+				7z a {*}$m -mx1 -sitest.txt -- $arcpath . << "$v"
+				assertLogged {\nCreating archive} \
+					{\nAdd new data to archive: 1 file} \
+					{\nEverything is Ok}
+
+				# make the file shorter (remove 5 last bytes):
+				set f [open $arcpath "r+b"]; chan seek $f -5 end; chan truncate $f; close $f
+				# test (shall fail):
+				if {![catch { 7z t {*}$m -- $arcpath } res]} {
+					error "test doesn't fail: $res"
+				}
+				assertNotLogged {(?n)^Everything is Ok}
+				assertLogged {(?n)^(?:ERROR: )?Unexpected end of (?:archive|data)}
+				# decompress (shall fail):
+				if {![catch { 7z e {*}$m -so -- $arcpath > [expr {$::tcl_platform(platform) eq "unix" ? "/dev/null" : {\\.\NUL}}] } res]} {
+					error "decompress doesn't fail: $res"
+				}
+				assertLogged {(?n)^(?:ERROR: )?Unexpected end of (?:archive|data)}
+
+				# make the file broken (add 5 wrong bytes):
+				set f [open $arcpath "ab"]; ::puts -nonewline $f 12345; close $f
+				# test (shall fail):
+				if {![catch { 7z t {*}$m -- $arcpath } res]} {
+					error "test doesn't fail: $res"
+				}
+				assertNotLogged {(?n)^Everything is Ok}
+				assertLogged {(?n)^(?:(?:Open )?ERROR: )?(?:Cannot open the file as \[\w+\] archive|Data Error|Unexpected end of (?:archive|data))}
+				# decompress (shall fail):
+				if {![catch { 7z e {*}$m -so -- $arcpath > [expr {$::tcl_platform(platform) eq "unix" ? "/dev/null" : {\\.\NUL}}] } res]} {
+					error "decompress doesn't fail: $res"
+				}
+				assertLogged {(?n)^(?:(?:Open )?ERROR: )?(?:Cannot open the file as \[\w+\] archive|Data Error|Unexpected end of (?:archive|data))}
+			} res]} {
+				error "Test of -t$t failed: $res"
+			}
+		}
+	}
+	set _ OK
+} -cleanup {
+	file delete -force $tmpdir
+} -result OK
 
 ::tcltest::cleanupTests
