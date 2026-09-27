@@ -1,0 +1,127 @@
+name: Release
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v26.03-v1.5.7-R1), created on the selected branch if missing'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+
+  windows:
+
+    strategy:
+      matrix:
+        arch: [ x64, x86, arm64 ]
+        darkmode: [darkmode, '']
+        include:
+          - arch: x86
+            runner: windows-2025-vs2026
+            subsys: "5.01"
+            platform: "x86"
+          - arch: x64
+            runner: windows-2025-vs2026
+            subsys: "5.02"
+            platform: "x64"
+          - arch: arm64
+            runner: windows-11-arm
+            subsys: "6.02"
+            platform: "arm64"
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v3 # nosonar
+        with:
+          msbuild-architecture: ${{ matrix.arch }}
+
+      - name: Find vcvarsall path
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`vswhere -latest -property installationPath`) do (
+            echo VCVARSALL_PATH=%%i\VC\Auxiliary\Build\vcvarsall.bat >> %GITHUB_ENV%
+          )
+
+      - name: Pre-requirements
+        if: ${{ matrix.darkmode == 'darkmode' }}
+        shell: cmd
+        run: |
+          git submodule update --init --recursive DarkMode/lib
+          if %errorlevel% neq 0 git clone https://github.com/ozone10/darkmodelib.git DarkMode/lib
+
+      - name: Compiling ${{ matrix.arch }}
+        shell: cmd
+        run: |
+          call "%VCVARSALL_PATH%" ${{ matrix.arch }}
+          set WDIR=%cd%
+          set PLATFORM=${{matrix.platform}}
+          set SUBSYS=${{matrix.subsys}}
+          set ROOT=%cd%\CPP\7zip
+          set OUTDIR=%WDIR%\build\bin-%PLATFORM%
+          @if "${{matrix.darkmode}}" == "darkmode" (
+            if "${{matrix.subsys}}" lss "6.00" set SUBSYS=6.00
+            set ZIP7_DARKMODE=1
+          ) else (
+            set OUTDIR=%OUTDIR%-ndm
+            set ZIP7_DARKMODE=0
+          )
+          set LFLAGS=/SUBSYSTEM:WINDOWS,%SUBSYS%
+          set ERRFILE=
+          set STOP_ON_ERROR=1
+
+          call CPP\build-it.cmd -no-init
+          IF %errorlevel% NEQ 0 EXIT 1
+
+          copy %WDIR%\.github\workflows\do-release.cmd %WDIR%\build\do-release.cmd
+
+      - name: Test
+        shell: cmd
+        run: |
+          set OUTDIR=build\bin-${{matrix.platform}}
+          if "${{matrix.darkmode}}" == "" set OUTDIR=%OUTDIR%-ndm
+          set Z7_PATH=%OUTDIR%\7z.exe
+          tclsh tests\7z-test.tcl -verbose tsem
+
+      - uses: actions/upload-artifact@v6
+        with:
+          path: ${{ github.workspace }}\build\**\*
+          name: release-bin-${{ matrix.arch }}-${{ matrix.darkmode }}
+
+  publish:
+    runs-on: windows-latest
+    needs: windows
+    steps:
+    - uses: actions/download-artifact@v7
+      with:
+        path: artifact
+        pattern: release-bin-*
+        merge-multiple: true
+
+    - name: Generate binaries for release
+      shell: cmd
+      run: |
+        cd artifact
+        do-release.cmd
+
+    - name: Create GitHub release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        cd artifact
+        gh release create "$RELEASE_TAG" *.exe *.7z \
+          --target "${{ github.sha }}" \
+          --title "7-Zip ZS $RELEASE_TAG" \
+          --generate-notes
