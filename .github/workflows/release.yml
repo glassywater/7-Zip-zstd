@@ -16,6 +16,49 @@ env:
 
 jobs:
 
+  linux:
+
+    strategy:
+      matrix:
+        arch: [ x64, arm64 ]
+        include:
+          - arch: x64
+            is_arm: false
+            runner: ubuntu-latest
+          - arch: arm64
+            is_arm: true
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Configure build system (uasm)
+      if: ${{ !matrix.is_arm }}
+      run: |
+        wget -q "https://github.com/Terraspace/UASM/releases/download/v2.57r/uasm257_linux64.zip"
+        unzip uasm257_linux64.zip uasm
+        sudo install -m 755 uasm /usr/bin
+
+    - name: Build via gcc
+      run: |
+        cd CPP
+        CC="gcc" CXX="g++" OUTDIR="$PWD/build-gcc" ./build-lx.sh
+
+    - name: Test
+      run: |
+        Z7_PATH="CPP/build-gcc/7z" tclsh tests/7z-test.tcl -verbose tsem
+
+    - name: Package
+      run: |
+        tar -C CPP/build-gcc -cJf "7z-zstd-${RELEASE_TAG}-linux-${{ matrix.arch }}.tar.xz" .
+
+    - uses: actions/upload-artifact@v6
+      with:
+        path: 7z-zstd-*.tar.xz
+        name: release-linux-${{ matrix.arch }}
+
   windows:
 
     strategy:
@@ -100,12 +143,18 @@ jobs:
 
   publish:
     runs-on: windows-latest
-    needs: windows
+    needs: [ windows, linux ]
     steps:
     - uses: actions/download-artifact@v7
       with:
         path: artifact
         pattern: release-bin-*
+        merge-multiple: true
+
+    - uses: actions/download-artifact@v7
+      with:
+        path: linux
+        pattern: release-linux-*
         merge-multiple: true
 
     - name: Generate binaries for release
@@ -126,3 +175,4 @@ jobs:
         files: |
           artifact/*.exe
           artifact/*.7z
+          linux/*.tar.xz
